@@ -37,16 +37,51 @@ document.addEventListener('DOMContentLoaded', () => {
   const VIDEOS_PER_PAGE = 3;
 
   async function fetchYouTubeVideos() {
+    // Primary: rss2json.com
     try {
       const response = await fetch(RSS2JSON_URL);
       const data = await response.json();
-      if (data.status === 'ok') {
+      if (data.status === 'ok' && data.items?.length) {
         allVideos = data.items;
         renderVideos();
+        return;
       }
     } catch (error) {
-      console.error('Error fetching YouTube videos:', error);
+      console.warn('rss2json fetch failed, trying fallback:', error);
     }
+
+    // Fallback: fetch raw YouTube RSS via CORS proxy and parse XML
+    try {
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(RSS_URL)}`;
+      const response = await fetch(proxyUrl);
+      const xmlText = await response.text();
+      const xml = new DOMParser().parseFromString(xmlText, 'text/xml');
+      const entries = Array.from(xml.querySelectorAll('entry'));
+      allVideos = entries.map(entry => ({
+        link: entry.querySelector('link')?.getAttribute('href') || '',
+        title: entry.querySelector('title')?.textContent || '',
+        pubDate: entry.querySelector('published')?.textContent || '',
+      })).filter(v => v.link);
+      if (allVideos.length) {
+        renderVideos();
+        return;
+      }
+    } catch (error) {
+      console.warn('RSS proxy fallback failed:', error);
+    }
+
+    // Final fallback: show error with channel link
+    const grid = document.getElementById('video-grid');
+    const loadMoreBtn = document.getElementById('load-more-btn');
+    if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+    grid.innerHTML = `
+      <div class="feed-error">
+        <p>No pudimos cargar los videos en este momento.</p>
+        <a href="https://www.youtube.com/@rejoicemusicpr" target="_blank" rel="noopener noreferrer" class="btn">
+          Ver en YouTube
+        </a>
+      </div>
+    `;
   }
 
   function getVideoId(link) {
